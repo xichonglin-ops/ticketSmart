@@ -256,6 +256,7 @@ def main():
 
 def quick_test():
     """快速测试模式（不需要登录，仅查询）"""
+    import sys
     print_banner()
 
     api = Train12306API()
@@ -267,10 +268,18 @@ def quick_test():
     print("\n" + "=" * 50)
     print("测试模式 - 验证API连接")
     print("=" * 50)
+    sys.stdout.flush()
+
+    # 先初始化session
+    print("\n正在初始化连接...")
+    sys.stdout.flush()
+    if not api.init_session():
+        print("初始化失败，请检查网络连接")
+        return
 
     # 先用常见路线测试API是否正常
     print(f"\n[测试1] 查询热门路线 北京->上海 ({test_date})")
-    print("正在初始化...")
+    sys.stdout.flush()
 
     trains = api.query_tickets(
         from_station="北京",

@@ -33,17 +33,27 @@ class Train12306API:
         try:
             print("正在连接12306...")
 
+            # 设置初始Referer
+            self.session.headers["Referer"] = "https://www.12306.cn/"
+
             # 访问12306首页获取基础cookies
             resp = self.get("https://www.12306.cn/index/")
-            if resp.status_code != 200:
-                print(f"访问12306首页失败: {resp.status_code}")
+            print(f"  访问首页: {resp.status_code}")
 
             # 访问登录页面
+            self.session.headers["Referer"] = "https://www.12306.cn/index/"
             resp = self.get("https://kyfw.12306.cn/otn/login/init")
+            print(f"  访问登录页: {resp.status_code}")
 
             # 访问查票页面
+            self.session.headers["Referer"] = "https://kyfw.12306.cn/otn/login/init"
             resp = self.get("https://kyfw.12306.cn/otn/leftTicket/init")
+            print(f"  访问查票页: {resp.status_code}")
+
             if resp.status_code == 200:
+                # 设置查票时的Referer
+                self.session.headers["Referer"] = "https://kyfw.12306.cn/otn/leftTicket/init"
+                self.session.headers["X-Requested-With"] = "XMLHttpRequest"
                 print("连接成功!")
                 self._initialized = True
                 return True
@@ -52,6 +62,8 @@ class Train12306API:
                 return False
         except Exception as e:
             print(f"初始化session失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
