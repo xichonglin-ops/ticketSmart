@@ -71,61 +71,117 @@ def export_cookies_guide():
 ║                  如何导出浏览器Cookie                          ║
 ╚══════════════════════════════════════════════════════════════╝
 
-方法1: 使用浏览器开发者工具（推荐）
------------------------------------------
-1. 在Chrome/Edge浏览器中打开 https://kyfw.12306.cn
-2. 登录你的12306账号
-3. 按 F12 打开开发者工具
-4. 切换到 "Application"（应用程序）标签
-5. 左侧选择 "Cookies" -> "https://kyfw.12306.cn"
-6. 记录以下关键cookie的值:
-   - JSESSIONID
-   - tk
-   - BIGipServerotn
-   - BIGipServerpassport
-   - route
+⚠️  注意: document.cookie 无法获取 HttpOnly 的cookie!
+    12306的关键cookie都是HttpOnly的，必须用下面的方法导出。
 
-方法2: 使用Console复制所有cookie
------------------------------------------
+═══════════════════════════════════════════════════════════════
+方法1: 从Network标签复制 (最可靠) ⭐推荐
+═══════════════════════════════════════════════════════════════
+1. 在Chrome/Edge浏览器中打开 https://kyfw.12306.cn 并登录
+2. 按 F12 打开开发者工具
+3. 切换到 "Network"（网络）标签
+4. 在页面上随便点击一下（触发请求）
+5. 在Network列表中点击任意一个请求
+6. 在右侧找到 "Headers"（标头）-> "Request Headers"
+7. 找到 "Cookie:" 行，复制整行cookie值
+8. 运行程序，选择 "手动输入cookie字符串"，粘贴即可
+
+═══════════════════════════════════════════════════════════════
+方法2: 从Application标签手动复制
+═══════════════════════════════════════════════════════════════
 1. 登录12306后，按F12打开开发者工具
-2. 切换到 "Console"（控制台）标签
-3. 输入以下命令并回车:
-   document.cookie
-4. 复制输出的cookie字符串
+2. 切换到 "Application"（应用程序）标签
+   (中文版可能是"应用"或"应用程序")
+3. 左侧展开 "Cookies" -> 点击 "https://kyfw.12306.cn"
+4. 右侧会显示所有cookie列表
+5. 运行程序，选择 "逐个输入关键cookie"
+6. 按提示输入各cookie的Value值
 
-方法3: 使用浏览器插件
------------------------------------------
-1. 安装 "EditThisCookie" 或 "Cookie-Editor" 插件
+═══════════════════════════════════════════════════════════════
+方法3: 使用浏览器插件 (最方便)
+═══════════════════════════════════════════════════════════════
+1. Chrome安装: "EditThisCookie" 或 "Cookie-Editor" 插件
 2. 登录12306后，点击插件图标
-3. 导出为JSON格式
+3. 点击"导出"按钮，导出为JSON格式
 4. 保存为 cookies.json 文件
+5. 运行程序，选择 "从cookies.json文件加载"
 
-将导出的cookie保存后，运行程序时选择"Cookie登录"即可。
+关键Cookie说明:
+- JSESSIONID: 会话ID (必需)
+- tk: 登录令牌 (必需)
+- uamtk: 认证令牌
+- BIGipServerotn: 负载均衡
+- BIGipServerpassport: 护照服务负载均衡
+- route: 路由信息
 """
     print(guide)
+
+
+def load_cookies_manually(session) -> bool:
+    """手动逐个输入关键cookie"""
+    print("\n请从浏览器Application标签中复制以下cookie的Value值:")
+    print("(如果某个cookie不存在，直接按回车跳过)\n")
+
+    key_cookies = [
+        ("JSESSIONID", "会话ID - 必需"),
+        ("tk", "登录令牌 - 必需"),
+        ("uamtk", "认证令牌"),
+        ("BIGipServerotn", "负载均衡"),
+        ("BIGipServerpassport", "护照服务"),
+        ("route", "路由信息"),
+        ("_jc_save_fromStation", "出发站缓存"),
+        ("_jc_save_toStation", "到达站缓存"),
+    ]
+
+    count = 0
+    required_found = {"JSESSIONID": False, "tk": False}
+
+    for name, desc in key_cookies:
+        value = input(f"{name} ({desc}): ").strip()
+        if value:
+            session.cookies.set(name, value, domain=".12306.cn")
+            count += 1
+            if name in required_found:
+                required_found[name] = True
+
+    print(f"\n已加载 {count} 个cookie")
+
+    if not required_found["JSESSIONID"] or not required_found["tk"]:
+        print("⚠️  警告: 缺少必需的cookie (JSESSIONID 或 tk)")
+        print("   登录可能会失败，建议使用Network标签复制完整cookie")
+
+    return count > 0
 
 
 def interactive_cookie_input(session) -> bool:
     """交互式输入cookie"""
     print("\n请选择cookie输入方式:")
-    print("  1. 从cookies.json文件加载")
-    print("  2. 手动输入cookie字符串")
-    print("  3. 查看导出教程")
+    print("  1. 从cookies.json文件加载 (插件导出)")
+    print("  2. 手动输入cookie字符串 (从Network标签复制) ⭐推荐")
+    print("  3. 逐个输入关键cookie (从Application标签)")
+    print("  4. 查看导出教程")
 
-    choice = input("请选择 [1]: ").strip() or "1"
+    choice = input("请选择 [2]: ").strip() or "2"
 
     if choice == "1":
         cookie_file = input("Cookie文件路径 [cookies.json]: ").strip() or "cookies.json"
         return load_cookies_from_file(session, cookie_file)
 
     elif choice == "2":
-        print("请输入cookie字符串 (格式: name1=value1; name2=value2):")
+        print("\n" + "=" * 50)
+        print("请从浏览器Network标签复制Cookie值:")
+        print("=" * 50)
+        print("步骤: F12 -> Network -> 点击任意请求 -> Headers -> Cookie")
+        print("\n粘贴整行cookie (格式: name1=value1; name2=value2...):")
         cookie_string = input().strip()
         if cookie_string:
             return load_cookies_from_string(session, cookie_string)
         return False
 
     elif choice == "3":
+        return load_cookies_manually(session)
+
+    elif choice == "4":
         export_cookies_guide()
         return interactive_cookie_input(session)
 
