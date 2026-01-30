@@ -31,12 +31,25 @@ class Train12306API:
         if self._initialized:
             return True
         try:
+            print("正在连接12306...")
+
             # 访问12306首页获取基础cookies
-            self.get("https://www.12306.cn/index/")
+            resp = self.get("https://www.12306.cn/index/")
+            if resp.status_code != 200:
+                print(f"访问12306首页失败: {resp.status_code}")
+
+            # 访问登录页面
+            resp = self.get("https://kyfw.12306.cn/otn/login/init")
+
             # 访问查票页面
-            self.get("https://kyfw.12306.cn/otn/leftTicket/init")
-            self._initialized = True
-            return True
+            resp = self.get("https://kyfw.12306.cn/otn/leftTicket/init")
+            if resp.status_code == 200:
+                print("连接成功!")
+                self._initialized = True
+                return True
+            else:
+                print(f"访问查票页面失败: {resp.status_code}")
+                return False
         except Exception as e:
             print(f"初始化session失败: {e}")
             return False
@@ -322,26 +335,34 @@ class Train12306API:
             "https://kyfw.12306.cn/otn/leftTicket/queryZ",
             "https://kyfw.12306.cn/otn/leftTicket/query",
             "https://kyfw.12306.cn/otn/leftTicket/queryA",
+            "https://kyfw.12306.cn/otn/leftTicket/queryG",
+            "https://kyfw.12306.cn/otn/leftTicket/queryT",
         ]
 
         trains = []
+        last_error = None
+
         for base_url in query_urls:
             try:
                 url = base_url + "?" + urlencode(params)
                 response = self.get(url)
 
                 if response.status_code != 200:
+                    last_error = f"HTTP {response.status_code}"
                     continue
 
                 # 检查是否是JSON响应
                 content_type = response.headers.get("Content-Type", "")
-                if "application/json" not in content_type and "text/json" not in content_type:
-                    # 可能是HTML错误页面
-                    if "<html" in response.text.lower():
-                        continue
+                response_text = response.text[:500]
+
+                # 如果是HTML页面，跳过
+                if "<html" in response_text.lower() or "<!doctype" in response_text.lower():
+                    last_error = "返回HTML页面"
+                    continue
 
                 result = self._safe_json(response)
                 if not result:
+                    last_error = f"无法解析JSON: {response_text[:100]}"
                     continue
 
                 if result.get("status"):
@@ -356,14 +377,22 @@ class Train12306API:
 
                     if trains:
                         return trains
+                    else:
+                        last_error = "查询成功但无车次数据"
                 else:
                     # 可能需要登录或其他错误
                     messages = result.get("messages", [])
                     if messages:
-                        print(f"查询提示: {messages}")
+                        last_error = f"API返回: {messages}"
+                    else:
+                        last_error = f"status=false: {str(result)[:100]}"
 
             except Exception as e:
+                last_error = str(e)
                 continue
+
+        if last_error:
+            print(f"调试信息: {last_error}")
 
         return trains
 
