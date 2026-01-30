@@ -238,23 +238,16 @@ class Train12306API:
                 code = result.get("result_code")
 
                 if code == "0":
-                    # 登录成功
-                    print(f"\n扫码确认成功! 响应: {result}")
-                    uamtk = result.get("uamtk")
-                    print(f"uamtk值: {uamtk}")
+                    # 扫码确认成功，需要调用uamtk接口获取token
+                    print(f"\n扫码确认成功!")
 
-                    if not uamtk:
-                        print("未获取到uamtk，尝试其他字段...")
-                        # 尝试其他可能的字段名
-                        uamtk = result.get("tk") or result.get("token") or result.get("newapptk")
-                        print(f"尝试其他字段后: {uamtk}")
-
-                    if uamtk and self._complete_qr_login(uamtk):
+                    # 调用uamtk接口获取认证token
+                    if self._get_uamtk_after_qr():
                         self.is_login = True
-                        print("\n扫码登录成功!")
+                        print("登录成功!")
                         return True
                     else:
-                        print("\n登录验证失败，请重试")
+                        print("登录验证失败，请重试")
                         return False
                 elif code == "1":
                     # 等待扫描
@@ -277,8 +270,69 @@ class Train12306API:
         print("\n扫码超时（2分钟），请重新运行程序")
         return False
 
+    def _get_uamtk_after_qr(self) -> bool:
+        """扫码成功后获取uamtk并完成认证"""
+        try:
+            # 第一步：调用uamtk接口获取token
+            print("正在获取认证token...")
+            uamtk_url = "https://kyfw.12306.cn/passport/web/auth/uamtk"
+            data = {"appid": "otn"}
+
+            response = self.post(uamtk_url, data=data)
+            print(f"uamtk响应状态: {response.status_code}")
+
+            if response.status_code != 200:
+                print(f"获取uamtk失败: {response.status_code}")
+                return False
+
+            result = self._safe_json(response)
+            print(f"uamtk响应: {result}")
+
+            # 检查result_code，可能是整数或字符串
+            result_code = result.get("result_code")
+            if result_code not in [0, "0"]:
+                print(f"获取uamtk失败: {result.get('result_message', '未知错误')}")
+                return False
+
+            # 获取newapptk
+            newapptk = result.get("newapptk")
+            if not newapptk:
+                print(f"未获取到newapptk，响应: {result}")
+                return False
+
+            print(f"获取到token: {newapptk[:20]}...")
+
+            # 第二步：调用uamauthclient完成认证
+            print("正在完成认证...")
+            auth_data = {"tk": newapptk}
+            response = self.post(URLS["uamauthclient"], data=auth_data)
+            print(f"认证响应状态: {response.status_code}")
+
+            if response.status_code != 200:
+                print(f"认证失败: {response.status_code}")
+                return False
+
+            result = self._safe_json(response)
+            print(f"认证响应: {result}")
+
+            result_code = result.get("result_code")
+            if result_code not in [0, "0"]:
+                print(f"认证失败: {result.get('result_message', '未知错误')}")
+                return False
+
+            self.token = result.get("apptk")
+            self.username = result.get("username")
+            print(f"认证成功! 用户: {self.username}")
+            return True
+
+        except Exception as e:
+            print(f"认证过程出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def _complete_qr_login(self, uamtk: str) -> bool:
-        """完成扫码登录"""
+        """完成扫码登录（备用方法）"""
         # 客户端认证
         data = {"tk": uamtk}
         try:
