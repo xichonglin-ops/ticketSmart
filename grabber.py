@@ -4,7 +4,7 @@
 
 import time
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 
 from api import Train12306API
@@ -27,6 +27,7 @@ class TicketGrabber:
         self.seat_types = []         # 座位类型优先级
         self.passengers = []         # 乘客列表
         self.ticket_count = 0        # 需要的票数
+        self.start_time = None       # 抢票开始时间 (HH:MM格式)
 
     def set_route(self, from_station: str, to_station: str):
         """设置出发站和到达站"""
@@ -62,6 +63,90 @@ class TicketGrabber:
         print(f"乘客已设置: {len(passengers)} 人")
         for p in passengers:
             print(f"  - {p['name']} ({p.get('type', '成人')})")
+
+    def set_start_time(self, start_time: str):
+        """
+        设置抢票开始时间
+        start_time: 24小时制时间字符串，如 "08:00", "06:30", "23:59"
+        """
+        if start_time:
+            # 验证时间格式
+            try:
+                parts = start_time.split(":")
+                hour = int(parts[0])
+                minute = int(parts[1]) if len(parts) > 1 else 0
+                if 0 <= hour <= 23 and 0 <= minute <= 59:
+                    self.start_time = f"{hour:02d}:{minute:02d}"
+                    print(f"抢票开始时间已设置: {self.start_time}")
+                else:
+                    print("时间格式错误，将立即开始抢票")
+                    self.start_time = None
+            except (ValueError, IndexError):
+                print("时间格式错误，将立即开始抢票")
+                self.start_time = None
+        else:
+            self.start_time = None
+
+    def _wait_for_start_time(self):
+        """等待到指定的开始时间"""
+        if not self.start_time:
+            return
+
+        target_hour, target_minute = map(int, self.start_time.split(":"))
+        now = datetime.now()
+
+        # 计算目标时间
+        target = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+
+        # 如果目标时间已过，设置为明天
+        if target <= now:
+            target = target + timedelta(days=1)
+            print(f"目标时间已过，将在明天 {self.start_time} 开始抢票")
+
+        # 计算等待时间
+        wait_seconds = (target - now).total_seconds()
+
+        if wait_seconds <= 0:
+            return
+
+        print("\n" + "=" * 50)
+        print(f"⏰ 等待抢票开始时间: {self.start_time}")
+        print(f"   当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"   目标时间: {target.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"   等待时长: {int(wait_seconds // 3600)}小时{int((wait_seconds % 3600) // 60)}分钟")
+        print("=" * 50)
+        print("\n提示: 按 Ctrl+C 可取消等待")
+
+        # 倒计时等待
+        try:
+            while True:
+                now = datetime.now()
+                remaining = (target - now).total_seconds()
+
+                if remaining <= 0:
+                    print("\n\n⏰ 时间到! 开始抢票!")
+                    # 提前一点点开始，确保不错过
+                    break
+
+                # 显示倒计时
+                hours = int(remaining // 3600)
+                minutes = int((remaining % 3600) // 60)
+                seconds = int(remaining % 60)
+
+                # 每秒更新一次显示
+                print(f"\r⏳ 倒计时: {hours:02d}:{minutes:02d}:{seconds:02d}  ", end="", flush=True)
+
+                # 最后10秒每0.1秒检查一次，其他时候每秒检查
+                if remaining <= 10:
+                    time.sleep(0.1)
+                elif remaining <= 60:
+                    time.sleep(0.5)
+                else:
+                    time.sleep(1)
+
+        except KeyboardInterrupt:
+            print("\n\n已取消等待")
+            raise
 
     def check_config(self) -> bool:
         """检查配置是否完整"""
@@ -195,6 +280,13 @@ class TicketGrabber:
             print("错误: 请先登录12306")
             return False
 
+        # 等待到指定的开始时间
+        try:
+            self._wait_for_start_time()
+        except KeyboardInterrupt:
+            print("用户取消")
+            return False
+
         self.is_running = True
         self.success = False
 
@@ -203,11 +295,15 @@ class TicketGrabber:
         interval = TICKET_CONFIG["query_interval"]
 
         print("\n" + "=" * 50)
-        print("开始抢票...")
+        print(f"🚄 开始抢票 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 50)
         print(f"路线: {self.from_station} -> {self.to_station}")
         print(f"日期: {', '.join(self.train_dates)}")
         print(f"车次: {', '.join(self.train_codes)}")
         print(f"乘客: {len(self.passengers)} 人")
+        print(f"座位: {', '.join(self.seat_types)}")
+        if self.start_time:
+            print(f"定时: {self.start_time}")
         print("=" * 50)
 
         while self.is_running and retry_count < max_retry:

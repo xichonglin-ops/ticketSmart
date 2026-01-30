@@ -28,16 +28,20 @@ from config import PASSENGER_TYPES, ID_TYPES
 def print_banner():
     """打印程序横幅"""
     banner = """
-╔══════════════════════════════════════════════════════════════╗
-║                    12306 智能抢票系统                          ║
-║                                                              ║
-║  路线: 北京 -> 陇西                                           ║
-║  车次: D29 / Z151                                            ║
-║  日期: 2026-02-11 / 2026-02-13                               ║
-║  票数: 3张 (2成人 + 1儿童)                                    ║
-╚══════════════════════════════════════════════════════════════╝
+╔════════════════════════════════════════════════════════════════╗
+║                     12306 智能抢票系统 v1.1                      ║
+╠════════════════════════════════════════════════════════════════╣
+║  🚄 路线: 北京 -> 陇西                                          ║
+║  🚂 车次: D29 / Z151                                            ║
+║  📅 日期: 2026-02-11 / 2026-02-13                               ║
+║  👥 票数: 3张 (2成人 + 1儿童)                                   ║
+╠════════════════════════════════════════════════════════════════╣
+║  功能: 定时抢票 | Cookie登录 | 座位优先级 | 连座支持              ║
+╚════════════════════════════════════════════════════════════════╝
     """
     print(banner)
+    print(f"  当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print()
 
 
 def get_login_info() -> tuple:
@@ -107,23 +111,32 @@ def get_all_passengers() -> list:
     return passengers
 
 
-def confirm_info(username: str, passengers: list) -> bool:
+def confirm_info(username: str, passengers: list, seat_types: list = None, start_time: str = None) -> bool:
     """确认信息"""
     print("\n" + "=" * 50)
-    print("请确认以下信息")
+    print("📋 请确认以下抢票信息")
     print("=" * 50)
 
-    print(f"\n登录账号: {username}")
-    print(f"\n路线: 北京 -> 陇西")
-    print(f"车次: D29 / Z151")
-    print(f"日期: 2026-02-11 / 2026-02-13")
+    print(f"\n👤 登录账号: {username}")
+    print(f"\n🚄 路线: 北京 -> 陇西")
+    print(f"🚂 车次: D29 / Z151")
+    print(f"📅 日期: 2026-02-11 / 2026-02-13")
 
-    print(f"\n乘客信息:")
+    if seat_types:
+        print(f"💺 座位优先级: {' > '.join(seat_types)}")
+
+    if start_time:
+        print(f"⏰ 开始时间: {start_time}")
+    else:
+        print(f"⏰ 开始时间: 立即开始")
+
+    print(f"\n👥 乘客信息 ({len(passengers)}人):")
     for i, p in enumerate(passengers):
-        print(f"  {i + 1}. {p['name']} ({p['type']}) - {p['id_type']}: {p['id_no'][:4]}****{p['id_no'][-4:]}")
+        id_display = p['id_no'][:4] + "****" + p['id_no'][-4:] if len(p['id_no']) > 8 else p['id_no']
+        print(f"  {i + 1}. {p['name']} ({p['type']}) - {p['id_type']}: {id_display}")
 
     print()
-    confirm = input("确认无误? (Y/n): ").strip().lower()
+    confirm = input("确认无误开始抢票? (Y/n): ").strip().lower()
     return confirm != "n"
 
 
@@ -164,6 +177,42 @@ def select_seat_types() -> list:
 
     print(f"座位优先级: {' > '.join(selected)}")
     return selected
+
+
+def get_start_time() -> str:
+    """获取抢票开始时间"""
+    print("\n" + "=" * 50)
+    print("设置抢票开始时间 (24小时制)")
+    print("=" * 50)
+
+    print("说明:")
+    print("  - 12306一般在 06:00-23:00 售票")
+    print("  - 放票时间通常为 08:00, 09:00, 10:00 等整点")
+    print("  - 输入空值则立即开始抢票")
+    print("\n格式示例: 08:00, 6:30, 23:59")
+
+    while True:
+        time_input = input("抢票开始时间 [立即开始]: ").strip()
+
+        if not time_input:
+            print("将立即开始抢票")
+            return ""
+
+        # 验证时间格式
+        try:
+            parts = time_input.replace("：", ":").split(":")  # 支持中文冒号
+            hour = int(parts[0])
+            minute = int(parts[1]) if len(parts) > 1 else 0
+
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                formatted_time = f"{hour:02d}:{minute:02d}"
+                print(f"抢票将在 {formatted_time} 开始")
+                return formatted_time
+            else:
+                print("时间无效，请输入 0-23 小时, 0-59 分钟")
+        except (ValueError, IndexError):
+            print("格式错误，请使用 HH:MM 格式 (如 08:00)")
+            continue
 
 
 def select_login_method() -> str:
@@ -256,23 +305,34 @@ def main():
         # 获取乘客信息
         passengers = get_all_passengers()
 
+        # 选择座位类型
+        seat_types = select_seat_types()
+
+        # 设置抢票开始时间
+        start_time = get_start_time()
+
         # 确认信息
-        if not confirm_info(api.username or "未知", passengers):
+        if not confirm_info(api.username or "未知", passengers, seat_types, start_time):
             print("已取消")
             return
 
-        # 选择座位类型
-        seat_types = select_seat_types()
+        # 设置抢票参数
         grabber.set_seat_types(seat_types)
-
-        # 设置乘客
         grabber.set_passengers(passengers)
+        if start_time:
+            grabber.set_start_time(start_time)
 
         # 开始抢票
-        print("\n准备开始抢票...")
+        print("\n" + "=" * 50)
+        print("准备开始抢票...")
         print("提示: 按 Ctrl+C 可以随时停止")
+        print("=" * 50)
 
-        input("\n按回车键开始抢票...")
+        if start_time:
+            print(f"\n程序将在 {start_time} 自动开始抢票")
+            print("您可以保持程序运行，到时间会自动开始")
+
+        input("\n按回车键确认...")
 
         grabber.start()
 
