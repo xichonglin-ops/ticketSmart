@@ -41,6 +41,13 @@ class Train12306API:
     def post(self, url: str, **kwargs) -> requests.Response:
         return self._request("POST", url, **kwargs)
 
+    def _safe_json(self, response) -> dict:
+        """安全解析JSON响应"""
+        try:
+            return response.json()
+        except Exception:
+            return {}
+
     # ==================== 登录相关 ====================
 
     def get_captcha(self) -> tuple:
@@ -110,21 +117,24 @@ class Train12306API:
 
     def _get_auth_token(self) -> bool:
         """获取认证token"""
-        # 获取uamtk
-        data = {"appid": "otn"}
-        response = self.post(URLS["uamtk"], data=data)
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("result_code") == 0:
-                tk = result.get("newapptk")
-                # 客户端认证
-                data = {"tk": tk}
-                response = self.post(URLS["uamauthclient"], data=data)
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get("result_code") == 0:
-                        self.token = result.get("apptk")
-                        return True
+        try:
+            # 获取uamtk
+            data = {"appid": "otn"}
+            response = self.post(URLS["uamtk"], data=data)
+            if response.status_code == 200:
+                result = self._safe_json(response)
+                if result.get("result_code") == 0:
+                    tk = result.get("newapptk")
+                    # 客户端认证
+                    data = {"tk": tk}
+                    response = self.post(URLS["uamauthclient"], data=data)
+                    if response.status_code == 200:
+                        result = self._safe_json(response)
+                        if result.get("result_code") == 0:
+                            self.token = result.get("apptk")
+                            return True
+        except Exception as e:
+            print(f"获取认证token失败: {e}")
         return False
 
     def login_with_qrcode(self) -> bool:
@@ -135,59 +145,106 @@ class Train12306API:
         # 获取二维码
         qr_url = "https://kyfw.12306.cn/passport/web/create-qr64"
         data = {"appid": "otn"}
-        response = self.post(qr_url, data=data)
 
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("result_code") == "0":
-                qr_base64 = result.get("image")
-                uuid = result.get("uuid")
+        try:
+            response = self.post(qr_url, data=data)
+        except Exception as e:
+            print(f"获取二维码失败: {e}")
+            return False
 
-                # 保存二维码图片
-                qr_data = base64.b64decode(qr_base64)
-                with open("qrcode.png", "wb") as f:
-                    f.write(qr_data)
+        if response.status_code != 200:
+            print(f"获取二维码失败，状态码: {response.status_code}")
+            return False
 
-                print("二维码已保存到 qrcode.png，请使用12306 APP扫描登录")
-                print("等待扫描...")
+        result = self._safe_json(response)
+        if result.get("result_code") != "0":
+            print(f"获取二维码失败: {result.get('result_message', '未知错误')}")
+            return False
 
-                # 轮询检查扫码状态
-                check_url = "https://kyfw.12306.cn/passport/web/checkqr"
-                for _ in range(120):  # 最多等待2分钟
-                    time.sleep(1)
-                    response = self.post(check_url, data={"uuid": uuid, "appid": "otn"})
-                    if response.status_code == 200:
-                        result = response.json()
-                        code = result.get("result_code")
-                        if code == "0":
-                            # 登录成功
-                            uamtk = result.get("uamtk")
-                            if self._complete_qr_login(uamtk):
-                                self.is_login = True
-                                print("扫码登录成功!")
-                                return True
-                        elif code == "1":
-                            # 等待扫描
-                            continue
-                        elif code == "2":
-                            print("已扫描，请在手机上确认登录")
-                        else:
-                            print(f"扫码状态: {result.get('result_message')}")
+        qr_base64 = result.get("image")
+        uuid = result.get("uuid")
 
-                print("扫码超时")
+        if not qr_base64 or not uuid:
+            print("二维码数据无效")
+            return False
+
+        # 保存二维码图片
+        try:
+            qr_data = base64.b64decode(qr_base64)
+            with open("qrcode.png", "wb") as f:
+                f.write(qr_data)
+        except Exception as e:
+            print(f"保存二维码失败: {e}")
+            return False
+
+        print("二维码已保存到 qrcode.png，请使用12306 APP扫描登录")
+        print("提示: 打开12306 APP -> 我的 -> 右上角扫一扫")
+        print("等待扫描...")
+
+        # 轮询检查扫码状态
+        check_url = "https://kyfw.12306.cn/passport/web/checkqr"
+        for i in range(120):  # 最多等待2分钟
+            time.sleep(1)
+            try:
+                response = self.post(check_url, data={"uuid": uuid, "appid": "otn"})
+                if response.status_code != 200:
+                    continue
+
+                result = self._safe_json(response)
+                code = result.get("result_code")
+
+                if code == "0":
+                    # 登录成功
+                    uamtk = result.get("uamtk")
+                    if uamtk and self._complete_qr_login(uamtk):
+                        self.is_login = True
+                        print("\n扫码登录成功!")
+                        return True
+                    else:
+                        print("\n登录验证失败，请重试")
+                        return False
+                elif code == "1":
+                    # 等待扫描
+                    if i % 10 == 0:
+                        print(f"等待扫描中... ({i}/120秒)")
+                    continue
+                elif code == "2":
+                    print("\r已扫描，请在手机上确认登录...", end="", flush=True)
+                elif code == "3":
+                    print("\n二维码已过期")
+                    return False
+                else:
+                    msg = result.get("result_message", "")
+                    if msg:
+                        print(f"\n扫码状态: {msg}")
+            except Exception as e:
+                # 网络错误，继续重试
+                continue
+
+        print("\n扫码超时（2分钟），请重新运行程序")
         return False
 
     def _complete_qr_login(self, uamtk: str) -> bool:
         """完成扫码登录"""
         # 客户端认证
         data = {"tk": uamtk}
-        response = self.post(URLS["uamauthclient"], data=data)
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("result_code") == 0:
-                self.token = result.get("apptk")
-                self.username = result.get("username")
-                return True
+        try:
+            response = self.post(URLS["uamauthclient"], data=data)
+            if response.status_code == 200:
+                try:
+                    result = response.json()
+                    if result.get("result_code") == 0:
+                        self.token = result.get("apptk")
+                        self.username = result.get("username")
+                        return True
+                    else:
+                        print(f"认证失败: {result.get('result_message', '未知错误')}")
+                except Exception:
+                    print(f"解析响应失败，响应内容: {response.text[:200]}")
+            else:
+                print(f"认证请求失败，状态码: {response.status_code}")
+        except Exception as e:
+            print(f"完成登录时出错: {e}")
         return False
 
     def check_login(self) -> bool:
