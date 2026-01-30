@@ -273,38 +273,55 @@ class Train12306API:
     def _get_uamtk_after_qr(self) -> bool:
         """扫码成功后获取uamtk并完成认证"""
         try:
-            # 第一步：调用uamtk接口获取token
+            # 尝试多个可能的uamtk接口
+            uamtk_urls = [
+                "https://kyfw.12306.cn/passport/web/auth/uamtk",
+                "https://kyfw.12306.cn/otn/passport/web/auth/uamtk",
+                "https://kyfw.12306.cn/passport/web/auth/uamtk-static",
+            ]
+
             print("正在获取认证token...")
-            uamtk_url = "https://kyfw.12306.cn/passport/web/auth/uamtk"
-            data = {"appid": "otn"}
 
-            response = self.post(uamtk_url, data=data)
-            print(f"uamtk响应状态: {response.status_code}")
-            print(f"uamtk原始响应: {response.text[:500]}")
+            newapptk = None
+            for uamtk_url in uamtk_urls:
+                print(f"尝试: {uamtk_url}")
 
-            if response.status_code != 200:
-                print(f"获取uamtk失败: {response.status_code}")
-                return False
+                # 设置正确的Referer
+                self.session.headers["Referer"] = "https://kyfw.12306.cn/otn/resources/login.html"
 
-            result = self._safe_json(response)
-            print(f"uamtk解析结果: {result}")
+                response = self.post(uamtk_url, data={"appid": "otn"})
+                print(f"  状态: {response.status_code}")
 
-            # 检查result_code，可能是整数或字符串
-            result_code = result.get("result_code")
-            if result_code not in [0, "0"]:
-                print(f"获取uamtk失败: {result.get('result_message', '未知错误')}")
-                return False
+                if response.status_code != 200:
+                    continue
 
-            # 获取newapptk
-            newapptk = result.get("newapptk")
+                # 检查是否是HTML
+                if "<html" in response.text[:100].lower():
+                    print(f"  返回HTML页面，跳过")
+                    continue
+
+                result = self._safe_json(response)
+                print(f"  响应: {result}")
+
+                if not result:
+                    continue
+
+                result_code = result.get("result_code")
+                if result_code in [0, "0"]:
+                    newapptk = result.get("newapptk")
+                    if newapptk:
+                        print(f"获取到token!")
+                        break
+
             if not newapptk:
-                print(f"未获取到newapptk，响应: {result}")
-                return False
-
-            print(f"获取到token: {newapptk[:20]}...")
+                print("无法获取认证token，尝试直接访问用户页面...")
+                # 尝试直接访问用户中心看是否已登录
+                return self._check_and_complete_login()
 
             # 第二步：调用uamauthclient完成认证
             print("正在完成认证...")
+            self.session.headers["Referer"] = "https://kyfw.12306.cn/otn/passport/web/auth/uamtk"
+
             auth_data = {"tk": newapptk}
             response = self.post(URLS["uamauthclient"], data=auth_data)
             print(f"认证响应状态: {response.status_code}")
@@ -317,19 +334,50 @@ class Train12306API:
             print(f"认证响应: {result}")
 
             result_code = result.get("result_code")
-            if result_code not in [0, "0"]:
+            if result_code in [0, "0"]:
+                self.token = result.get("apptk")
+                self.username = result.get("username")
+                print(f"认证成功! 用户: {self.username}")
+                return True
+            else:
                 print(f"认证失败: {result.get('result_message', '未知错误')}")
                 return False
-
-            self.token = result.get("apptk")
-            self.username = result.get("username")
-            print(f"认证成功! 用户: {self.username}")
-            return True
 
         except Exception as e:
             print(f"认证过程出错: {e}")
             import traceback
             traceback.print_exc()
+            return False
+
+    def _check_and_complete_login(self) -> bool:
+        """检查是否已登录并完成认证"""
+        try:
+            # 访问用户中心页面
+            print("检查登录状态...")
+            self.session.headers["Referer"] = "https://kyfw.12306.cn/otn/view/index.html"
+
+            response = self.get("https://kyfw.12306.cn/otn/login/userLogin")
+            print(f"用户页面状态: {response.status_code}")
+
+            # 尝试获取用户信息
+            response = self.post(
+                "https://kyfw.12306.cn/otn/modifyUser/initQueryUserInfoApi",
+                data={"_json_att": ""}
+            )
+
+            if response.status_code == 200:
+                result = self._safe_json(response)
+                if result.get("status") and result.get("data"):
+                    user_info = result.get("data", {}).get("userDTO", {})
+                    self.username = user_info.get("loginUserDTO", {}).get("user_name")
+                    if self.username:
+                        print(f"已登录用户: {self.username}")
+                        return True
+
+            print("登录状态检查失败")
+            return False
+        except Exception as e:
+            print(f"检查登录状态出错: {e}")
             return False
 
     def _complete_qr_login(self, uamtk: str) -> bool:
