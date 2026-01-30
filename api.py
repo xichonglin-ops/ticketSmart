@@ -239,7 +239,16 @@ class Train12306API:
 
                 if code == "0":
                     # 登录成功
+                    print(f"\n扫码确认成功! 响应: {result}")
                     uamtk = result.get("uamtk")
+                    print(f"uamtk值: {uamtk}")
+
+                    if not uamtk:
+                        print("未获取到uamtk，尝试其他字段...")
+                        # 尝试其他可能的字段名
+                        uamtk = result.get("tk") or result.get("token") or result.get("newapptk")
+                        print(f"尝试其他字段后: {uamtk}")
+
                     if uamtk and self._complete_qr_login(uamtk):
                         self.is_login = True
                         print("\n扫码登录成功!")
