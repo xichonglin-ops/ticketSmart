@@ -24,6 +24,22 @@ class Train12306API:
         self.username = None
         self.token = None
         self.passengers = []
+        self._initialized = False
+
+    def init_session(self):
+        """初始化session，获取必要的cookies"""
+        if self._initialized:
+            return True
+        try:
+            # 访问12306首页获取基础cookies
+            self.get("https://www.12306.cn/index/")
+            # 访问查票页面
+            self.get("https://kyfw.12306.cn/otn/leftTicket/init")
+            self._initialized = True
+            return True
+        except Exception as e:
+            print(f"初始化session失败: {e}")
+            return False
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         """发送请求"""
@@ -283,6 +299,9 @@ class Train12306API:
         train_date: 出发日期 YYYY-MM-DD
         purpose_codes: ADULT-成人票 0X00-学生票
         """
+        # 确保session已初始化
+        self.init_session()
+
         try:
             from_code = get_station_code(from_station)
             to_code = get_station_code(to_station)
@@ -297,13 +316,34 @@ class Train12306API:
             "purpose_codes": purpose_codes,
         }
 
-        url = URLS["query_ticket"] + "?" + urlencode(params)
-        response = self.get(url)
+        # 12306查票接口URL可能会变化，尝试多个
+        query_urls = [
+            "https://kyfw.12306.cn/otn/leftTicket/queryE",
+            "https://kyfw.12306.cn/otn/leftTicket/queryZ",
+            "https://kyfw.12306.cn/otn/leftTicket/query",
+            "https://kyfw.12306.cn/otn/leftTicket/queryA",
+        ]
 
         trains = []
-        if response.status_code == 200:
+        for base_url in query_urls:
             try:
-                result = response.json()
+                url = base_url + "?" + urlencode(params)
+                response = self.get(url)
+
+                if response.status_code != 200:
+                    continue
+
+                # 检查是否是JSON响应
+                content_type = response.headers.get("Content-Type", "")
+                if "application/json" not in content_type and "text/json" not in content_type:
+                    # 可能是HTML错误页面
+                    if "<html" in response.text.lower():
+                        continue
+
+                result = self._safe_json(response)
+                if not result:
+                    continue
+
                 if result.get("status"):
                     data = result.get("data", {})
                     results = data.get("result", [])
@@ -313,10 +353,17 @@ class Train12306API:
                         train_info = self._parse_train_info(item, station_map)
                         if train_info:
                             trains.append(train_info)
+
+                    if trains:
+                        return trains
+                else:
+                    # 可能需要登录或其他错误
+                    messages = result.get("messages", [])
+                    if messages:
+                        print(f"查询提示: {messages}")
+
             except Exception as e:
-                print(f"解析车次信息失败: {e}")
-        else:
-            print(f"查询失败，状态码: {response.status_code}")
+                continue
 
         return trains
 

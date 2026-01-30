@@ -260,30 +260,66 @@ def quick_test():
 
     api = Train12306API()
 
-    print("\n正在查询车票信息...")
-    print("路线: 北京 -> 陇西")
-    print("日期: 2026-02-11")
-    print("车次: D29, Z151")
+    # 计算一个合理的测试日期（15天后，在预售期内）
+    from datetime import datetime, timedelta
+    test_date = (datetime.now() + timedelta(days=15)).strftime("%Y-%m-%d")
 
+    print("\n" + "=" * 50)
+    print("测试模式 - 验证API连接")
+    print("=" * 50)
+
+    # 先用常见路线测试API是否正常
+    print(f"\n[测试1] 查询热门路线 北京->上海 ({test_date})")
+    print("正在初始化...")
+
+    trains = api.query_tickets(
+        from_station="北京",
+        to_station="上海",
+        train_date=test_date
+    )
+
+    if trains:
+        print(f"API正常! 找到 {len(trains)} 个车次")
+        print("显示前3个车次:")
+        for train in trains[:3]:
+            print(f"  - {train['train_code']}: {train['start_time']}->{train['arrive_time']} 二等座:{train.get('ze', '--')}")
+    else:
+        print("未查到车次，可能是网络问题或12306接口变化")
+        print("请检查网络连接后重试")
+        return
+
+    # 测试目标路线
+    print(f"\n[测试2] 查询目标路线 北京->陇西 ({test_date})")
     trains = api.query_specific_trains(
         from_station="北京",
         to_station="陇西",
-        train_date="2026-02-11",
+        train_date=test_date,
         train_codes=["D29", "Z151"]
     )
 
     if trains:
-        print(f"\n找到 {len(trains)} 个目标车次:")
+        print(f"找到 {len(trains)} 个目标车次:")
         for train in trains:
             print(f"\n车次: {train['train_code']}")
             print(f"  出发: {train['start_time']} 到达: {train['arrive_time']} 历时: {train['duration']}")
             print(f"  硬卧: {train.get('yw', '--')} | 软卧: {train.get('rw', '--')} | 硬座: {train.get('yz', '--')}")
-            print(f"  二等座: {train.get('ze', '--')} | 一等座: {train.get('zy', '--')}")
     else:
-        print("\n未找到目标车次，可能是:")
-        print("  1. 车票尚未开售")
-        print("  2. 网络问题")
-        print("  3. 车次信息有误")
+        print("未找到D29/Z151车次")
+        print("注意: 这两趟车可能不是每天都有，或者站点名称需要确认")
+
+        # 查询所有北京到陇西的车次
+        print(f"\n[测试3] 查询所有 北京->陇西 车次")
+        all_trains = api.query_tickets("北京", "陇西", test_date)
+        if all_trains:
+            print(f"找到 {len(all_trains)} 个车次:")
+            for train in all_trains[:5]:
+                print(f"  - {train['train_code']}: {train['start_time']}->{train['arrive_time']}")
+        else:
+            print("该路线暂无直达车次，可能需要中转")
+
+    print("\n" + "=" * 50)
+    print("测试完成!")
+    print("=" * 50)
 
 
 if __name__ == "__main__":
