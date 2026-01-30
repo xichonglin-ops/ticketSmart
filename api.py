@@ -352,6 +352,9 @@ class Train12306API:
     def _check_and_complete_login(self) -> bool:
         """检查是否已登录并完成认证"""
         try:
+            # 打印当前cookies
+            print(f"当前cookies: {list(self.session.cookies.keys())}")
+
             # 访问用户中心页面
             print("检查登录状态...")
             self.session.headers["Referer"] = "https://kyfw.12306.cn/otn/view/index.html"
@@ -359,18 +362,42 @@ class Train12306API:
             response = self.get("https://kyfw.12306.cn/otn/login/userLogin")
             print(f"用户页面状态: {response.status_code}")
 
-            # 尝试获取用户信息
-            response = self.post(
-                "https://kyfw.12306.cn/otn/modifyUser/initQueryUserInfoApi",
-                data={"_json_att": ""}
-            )
+            # 尝试多个用户信息接口
+            user_apis = [
+                ("https://kyfw.12306.cn/otn/modifyUser/initQueryUserInfoApi", {"_json_att": ""}),
+                ("https://kyfw.12306.cn/otn/login/checkUser", {"_json_att": ""}),
+                ("https://kyfw.12306.cn/otn/index/initMy12306Api", {"_json_att": ""}),
+            ]
 
-            if response.status_code == 200:
-                result = self._safe_json(response)
-                if result.get("status") and result.get("data"):
-                    user_info = result.get("data", {}).get("userDTO", {})
-                    self.username = user_info.get("loginUserDTO", {}).get("user_name")
-                    if self.username:
+            for url, data in user_apis:
+                print(f"尝试: {url}")
+                response = self.post(url, data=data)
+                print(f"  状态: {response.status_code}")
+                print(f"  响应: {response.text[:300]}")
+
+                if response.status_code == 200:
+                    result = self._safe_json(response)
+
+                    # checkUser接口
+                    if "data" in result and "flag" in result.get("data", {}):
+                        if result["data"]["flag"]:
+                            print("checkUser: 已登录!")
+                            self.username = "已登录用户"
+                            return True
+
+                    # initQueryUserInfoApi接口
+                    if result.get("status") and result.get("data"):
+                        user_info = result.get("data", {}).get("userDTO", {})
+                        if user_info:
+                            login_dto = user_info.get("loginUserDTO", {})
+                            self.username = login_dto.get("user_name") or login_dto.get("name")
+                            if self.username:
+                                print(f"已登录用户: {self.username}")
+                                return True
+
+                    # initMy12306Api接口
+                    if result.get("status") and result.get("data", {}).get("isLogin"):
+                        self.username = result["data"].get("userName", "已登录用户")
                         print(f"已登录用户: {self.username}")
                         return True
 
@@ -378,6 +405,8 @@ class Train12306API:
             return False
         except Exception as e:
             print(f"检查登录状态出错: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def _complete_qr_login(self, uamtk: str) -> bool:
