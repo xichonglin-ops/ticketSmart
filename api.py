@@ -183,6 +183,9 @@ class Train12306API:
         扫码登录（推荐方式）
         返回二维码图片让用户扫描
         """
+        # 先初始化session获取必要的cookies
+        self.init_session()
+
         # 获取二维码
         qr_url = "https://kyfw.12306.cn/passport/web/create-qr64"
         data = {"appid": "otn"}
@@ -270,20 +273,27 @@ class Train12306API:
         # 客户端认证
         data = {"tk": uamtk}
         try:
+            print(f"\n正在完成登录验证...")
             response = self.post(URLS["uamauthclient"], data=data)
+            print(f"验证响应状态码: {response.status_code}")
+
             if response.status_code == 200:
                 try:
                     result = response.json()
+                    print(f"验证响应: {result}")
+
                     if result.get("result_code") == 0:
                         self.token = result.get("apptk")
                         self.username = result.get("username")
                         return True
                     else:
                         print(f"认证失败: {result.get('result_message', '未知错误')}")
-                except Exception:
-                    print(f"解析响应失败，响应内容: {response.text[:200]}")
+                except Exception as e:
+                    print(f"解析响应失败: {e}")
+                    print(f"响应内容: {response.text[:500]}")
             else:
                 print(f"认证请求失败，状态码: {response.status_code}")
+                print(f"响应内容: {response.text[:500]}")
         except Exception as e:
             print(f"完成登录时出错: {e}")
         return False
