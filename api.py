@@ -238,11 +238,15 @@ class Train12306API:
                 code = result.get("result_code")
 
                 if code == "0":
-                    # 扫码确认成功，需要调用uamtk接口获取token
+                    # 扫码确认成功
                     print(f"\n扫码确认成功!")
+                    print(f"完整响应: {result}")
+
+                    # 检查是否有uamtk
+                    uamtk = result.get("uamtk")
 
                     # 调用uamtk接口获取认证token
-                    if self._get_uamtk_after_qr():
+                    if self._get_uamtk_after_qr(uamtk):
                         self.is_login = True
                         print("登录成功!")
                         return True
@@ -270,52 +274,73 @@ class Train12306API:
         print("\n扫码超时（2分钟），请重新运行程序")
         return False
 
-    def _get_uamtk_after_qr(self) -> bool:
+    def _get_uamtk_after_qr(self, uamtk_from_qr: str = None) -> bool:
         """扫码成功后获取uamtk并完成认证"""
         try:
-            # 尝试多个可能的uamtk接口
-            uamtk_urls = [
-                "https://kyfw.12306.cn/passport/web/auth/uamtk",
-                "https://kyfw.12306.cn/otn/passport/web/auth/uamtk",
-                "https://kyfw.12306.cn/passport/web/auth/uamtk-static",
-            ]
-
-            print("正在获取认证token...")
-
             newapptk = None
-            for uamtk_url in uamtk_urls:
-                print(f"尝试: {uamtk_url}")
 
-                # 设置正确的Referer
-                self.session.headers["Referer"] = "https://kyfw.12306.cn/otn/resources/login.html"
+            # 如果扫码响应中有uamtk，直接使用
+            if uamtk_from_qr:
+                print(f"使用扫码响应中的uamtk")
+                newapptk = uamtk_from_qr
 
-                response = self.post(uamtk_url, data={"appid": "otn"})
-                print(f"  状态: {response.status_code}")
+            # 尝试多个可能的uamtk接口
+            if not newapptk:
+                uamtk_urls = [
+                    "https://kyfw.12306.cn/passport/web/auth/uamtk",
+                    "https://kyfw.12306.cn/otn/passport/web/auth/uamtk",
+                    "https://kyfw.12306.cn/passport/web/auth/uamtk-static",
+                ]
 
-                if response.status_code != 200:
-                    continue
+                print("正在获取认证token...")
 
-                # 检查是否是HTML
-                if "<html" in response.text[:100].lower():
-                    print(f"  返回HTML页面，跳过")
-                    continue
+                for uamtk_url in uamtk_urls:
+                    print(f"尝试: {uamtk_url}")
 
-                result = self._safe_json(response)
-                print(f"  响应: {result}")
+                    # 设置正确的Referer
+                    self.session.headers["Referer"] = "https://kyfw.12306.cn/otn/resources/login.html"
 
-                if not result:
-                    continue
+                    response = self.post(uamtk_url, data={"appid": "otn"})
+                    print(f"  状态: {response.status_code}")
+                    print(f"  原始响应: {response.text[:200]}")
 
-                result_code = result.get("result_code")
-                if result_code in [0, "0"]:
-                    newapptk = result.get("newapptk")
-                    if newapptk:
-                        print(f"获取到token!")
-                        break
+                    if response.status_code != 200:
+                        continue
+
+                    # 检查是否是HTML
+                    if "<html" in response.text[:100].lower():
+                        print(f"  返回HTML页面，跳过")
+                        continue
+
+                    result = self._safe_json(response)
+                    print(f"  解析结果: {result}")
+
+                    if not result:
+                        continue
+
+                    result_code = result.get("result_code")
+                    if result_code in [0, "0"]:
+                        newapptk = result.get("newapptk")
+                        if newapptk:
+                            print(f"获取到token!")
+                            break
 
             if not newapptk:
-                print("无法获取认证token，尝试直接访问用户页面...")
-                # 尝试直接访问用户中心看是否已登录
+                print("无法获取认证token，尝试其他方法...")
+
+                # 方法1: 访问登录回调页面
+                print("尝试访问登录回调页面...")
+                callback_urls = [
+                    "https://kyfw.12306.cn/otn/login/userLogin",
+                    "https://kyfw.12306.cn/otn/passport/web/login",
+                    "https://kyfw.12306.cn/otn/view/index.html",
+                ]
+                for url in callback_urls:
+                    self.session.headers["Referer"] = "https://kyfw.12306.cn/otn/resources/login.html"
+                    response = self.get(url)
+                    print(f"  {url}: {response.status_code}")
+
+                # 方法2: 尝试直接访问用户中心看是否已登录
                 return self._check_and_complete_login()
 
             # 第二步：调用uamauthclient完成认证
