@@ -280,13 +280,14 @@ class Train12306API:
 
             response = self.post(uamtk_url, data=data)
             print(f"uamtk响应状态: {response.status_code}")
+            print(f"uamtk原始响应: {response.text[:500]}")
 
             if response.status_code != 200:
                 print(f"获取uamtk失败: {response.status_code}")
                 return False
 
             result = self._safe_json(response)
-            print(f"uamtk响应: {result}")
+            print(f"uamtk解析结果: {result}")
 
             # 检查result_code，可能是整数或字符串
             result_code = result.get("result_code")
