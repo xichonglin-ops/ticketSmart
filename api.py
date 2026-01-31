@@ -673,6 +673,15 @@ class Train12306API:
             print("车次信息无效")
             return False
 
+        # 提交订单前先验证登录状态（刷新session）
+        check_resp = self.post("https://kyfw.12306.cn/otn/login/checkUser", data={"_json_att": ""})
+        if check_resp.status_code == 200:
+            check_result = self._safe_json(check_resp)
+            if not check_result.get("data", {}).get("flag"):
+                print("登录状态已过期，请重新登录")
+                self.is_login = False
+                return False
+
         # 提交订单请求
         data = {
             "secretStr": requests.utils.unquote(secret_str),
@@ -737,10 +746,17 @@ class Train12306API:
 
         # 如果无法提取 token，检查是否是登录问题
         if not token_match or not ticket_match or not order_match:
+            # 打印调试信息：HTML 长度和前500字符
+            print(f"[调试] initDc 返回 HTML 长度: {len(html)}")
+            print(f"[调试] HTML 内容预览: {html[:500]}...")
+
             # 检查是否返回了登录页面（明确的登录页面标识）
-            if "请先登录" in html or "login/init" in html or "var isLogin = false" in html:
+            if "用户未登录" in html or "请您先登录" in html:
                 print("登录状态已失效，请重新登录")
                 self.is_login = False
+            elif len(html) < 1000:
+                # 响应太短，可能是错误页面
+                print(f"initDc 响应异常，内容: {html}")
             else:
                 # 打印具体哪个字段缺失，便于调试
                 missing = []
