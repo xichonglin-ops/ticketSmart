@@ -187,23 +187,37 @@ def select_seat_types() -> list:
     print("=" * 50)
 
     print("可选座位类型:")
-    print("  1. 硬卧")
-    print("  2. 软卧")
-    print("  3. 硬座")
-    print("  4. 二等座")
-    print("  5. 一等座")
-    print("  6. 无座")
+    print("  --- 动车/高铁 ---")
+    print("  1. 二等座")
+    print("  2. 一等座")
+    print("  3. 商务座")
+    print("  4. 二等卧 (动车卧铺)")
+    print("  5. 一等卧 (动车卧铺)")
+    print("  6. 动卧")
+    print("  --- 普通列车 ---")
+    print("  7. 硬座")
+    print("  8. 软座")
+    print("  9. 硬卧")
+    print("  10. 软卧")
+    print("  11. 高级软卧")
+    print("  12. 无座")
 
     seat_map = {
-        "1": "硬卧",
-        "2": "软卧",
-        "3": "硬座",
-        "4": "二等座",
-        "5": "一等座",
-        "6": "无座",
+        "1": "二等座",
+        "2": "一等座",
+        "3": "商务座",
+        "4": "二等卧",
+        "5": "一等卧",
+        "6": "动卧",
+        "7": "硬座",
+        "8": "软座",
+        "9": "硬卧",
+        "10": "软卧",
+        "11": "高级软卧",
+        "12": "无座",
     }
 
-    default = "1,2,3"  # 默认: 硬卧 > 软卧 > 硬座
+    default = "4,5,6"  # 默认: 二等卧 > 一等卧 > 动卧
     choice = input(f"请选择 [{default}]: ").strip() or default
 
     selected = []
@@ -213,7 +227,7 @@ def select_seat_types() -> list:
             selected.append(seat_map[c])
 
     if not selected:
-        selected = ["硬卧", "软卧", "硬座"]
+        selected = ["二等卧", "一等卧", "动卧"]
 
     print(f"座位优先级: {' > '.join(selected)}")
     return selected
