@@ -321,28 +321,39 @@ class TicketGrabber:
                 print(f"日期: {date}")
                 print(f"座位: {seat_type}")
 
-                # 尝试提交订单
-                success = self.api.submit_order(
-                    train_info=train_info,
-                    passengers=self.passengers,
-                    seat_type=seat_type,
-                    train_date=date,
-                    from_station=self.from_station,
-                    to_station=self.to_station
-                )
+                # 尝试提交订单，支持多次重试
+                submit_retry = 0
+                max_submit_retry = TICKET_CONFIG.get("submit_retry", 3)
 
-                if success:
-                    self.success = True
-                    self.is_running = False
-                    print("\n" + "=" * 50)
-                    print("抢票成功！请尽快前往12306完成支付！")
-                    print("=" * 50)
-                    return True
-                else:
-                    print("订单提交失败，继续尝试...")
+                while submit_retry < max_submit_retry:
+                    submit_retry += 1
+                    success = self.api.submit_order(
+                        train_info=train_info,
+                        passengers=self.passengers,
+                        seat_type=seat_type,
+                        train_date=date,
+                        from_station=self.from_station,
+                        to_station=self.to_station
+                    )
+
+                    if success:
+                        self.success = True
+                        self.is_running = False
+                        print("\n" + "=" * 50)
+                        print("抢票成功！请尽快前往12306完成支付！")
+                        print("=" * 50)
+                        return True
+                    else:
+                        if submit_retry < max_submit_retry:
+                            # 提交失败后增加延迟，避免限流
+                            delay = 2 + submit_retry * 1.5 + random.uniform(0, 1)
+                            print(f"订单提交失败，等待 {delay:.1f} 秒后重试 ({submit_retry}/{max_submit_retry})...")
+                            time.sleep(delay)
+                        else:
+                            print("订单提交失败，继续查询新票...")
 
             # 随机等待，避免被封
-            wait_time = interval + random.uniform(0, 0.5)
+            wait_time = interval + random.uniform(0.5, 1.5)
             time.sleep(wait_time)
 
         print("\n抢票结束，未能成功购票")

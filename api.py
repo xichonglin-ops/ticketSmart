@@ -704,9 +704,14 @@ class Train12306API:
 
         token, ticket_info_for_passenger_form, order_request_dto = init_result
 
+        # 检查订单信息（12306必需步骤）
+        if not self._check_order_info(passengers, seat_type, token, ticket_info_for_passenger_form):
+            print("订单信息检查失败")
+            return False
+
         # 获取排队信息
         queue_count = self._get_queue_count(
-            train_info, seat_type, train_date, token
+            train_info, seat_type, train_date, token, ticket_info_for_passenger_form
         )
         print(f"当前排队人数: {queue_count}")
 
@@ -720,18 +725,30 @@ class Train12306API:
         """初始化订单确认页面，获取token等信息"""
         response = self.post(URLS["init_dc"], data={"_json_att": ""})
         if response.status_code != 200:
-            print("初始化订单页面失败")
+            print(f"初始化订单页面失败: HTTP {response.status_code}")
             return None
 
         html = response.text
+
+        # 检查是否返回了登录页面（session 失效）
+        if "用户登录" in html or "login" in html.lower() and "passport" in html.lower():
+            print("登录状态已失效，请重新登录")
+            self.is_login = False
+            return None
 
         # 提取token
         token_match = re.search(r"var globalRepeatSubmitToken = '([^']+)'", html)
         ticket_match = re.search(r"var ticketInfoForPassengerForm=(\{.+?\});", html, re.S)
         order_match = re.search(r"var orderRequestDTO=(\{.+?\});", html, re.S)
 
-        if not all([token_match, ticket_match, order_match]):
-            print("无法获取订单token")
+        if not token_match:
+            print("无法获取订单token: globalRepeatSubmitToken 未找到")
+            return None
+        if not ticket_match:
+            print("无法获取订单token: ticketInfoForPassengerForm 未找到")
+            return None
+        if not order_match:
+            print("无法获取订单token: orderRequestDTO 未找到")
             return None
 
         token = token_match.group(1)
@@ -742,10 +759,12 @@ class Train12306API:
             # 简单处理：提取必要字段
             key_check_match = re.search(r"'key_check_isChange':'([^']+)'", ticket_info_str)
             train_location_match = re.search(r"'train_location':'([^']+)'", ticket_info_str)
+            left_ticket_match = re.search(r"'leftTicketStr':'([^']*)'", ticket_info_str)
 
             ticket_info = {
                 "key_check_isChange": key_check_match.group(1) if key_check_match else "",
                 "train_location": train_location_match.group(1) if train_location_match else "",
+                "leftTicketStr": left_ticket_match.group(1) if left_ticket_match else "",
             }
 
             order_str = order_match.group(1)
@@ -760,12 +779,72 @@ class Train12306API:
             print(f"解析订单页面失败: {e}")
             return None
 
+    def _check_order_info(self, passengers: list, seat_type: str, token: str,
+                          ticket_info: dict) -> bool:
+        """
+        检查订单信息 - 12306必需步骤
+        在确认订单前必须调用此接口验证乘客信息
+        """
+        seat_code = SEAT_TYPES.get(seat_type, "1")
+
+        passenger_str_list = []
+        old_passenger_str_list = []
+
+        for p in passengers:
+            ptype = PASSENGER_TYPES.get(p.get("type", "成人"), "1")
+            id_type = ID_TYPES.get(p.get("id_type", "二代身份证"), "1")
+
+            new_str = f"{seat_code},0,{ptype},{p['name']},{id_type},{p['id_no']},{p.get('mobile', '')},N,{p.get('allEnc', '')}"
+            passenger_str_list.append(new_str)
+
+            old_str = f"{p['name']},{id_type},{p['id_no']},{ptype}_"
+            old_passenger_str_list.append(old_str)
+
+        data = {
+            "cancel_flag": "2",
+            "bed_level_order_num": "000000000000000000000000000000",
+            "passengerTicketStr": "_".join(passenger_str_list),
+            "oldPassengerStr": "".join(old_passenger_str_list),
+            "tour_flag": "dc",
+            "randCode": "",
+            "whatsSelect": "1",
+            "sessionId": "",
+            "sig": "",
+            "scene": "nc_login",
+            "_json_att": "",
+            "REPEAT_SUBMIT_TOKEN": token,
+        }
+
+        response = self.post(URLS["check_order_info"], data=data)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("status"):
+                data_info = result.get("data", {})
+                if data_info.get("submitStatus"):
+                    return True
+                else:
+                    err_msg = data_info.get("errMsg", "未知错误")
+                    print(f"订单信息验证失败: {err_msg}")
+                    # 检查是否需要验证码
+                    if data_info.get("ifShowPassCode") == "Y":
+                        print("需要验证码验证，暂不支持自动处理")
+                    return False
+            else:
+                print(f"检查订单信息失败: {result.get('messages', ['未知错误'])}")
+        else:
+            print(f"检查订单信息请求失败: HTTP {response.status_code}")
+        return False
+
     def _get_queue_count(self, train_info: dict, seat_type: str,
-                         train_date: str, token: str) -> int:
+                         train_date: str, token: str, ticket_info: dict = None) -> int:
         """获取排队人数"""
         # 转换日期格式
         date_obj = datetime.strptime(train_date, "%Y-%m-%d")
         train_date_str = date_obj.strftime("%a %b %d %Y 00:00:00 GMT+0800 (中国标准时间)")
+
+        # 使用从 initDc 获取的 leftTicketStr 和 train_location
+        left_ticket = ticket_info.get("leftTicketStr", "") if ticket_info else ""
+        train_location = ticket_info.get("train_location", "") if ticket_info else ""
 
         data = {
             "train_date": train_date_str,
@@ -774,18 +853,24 @@ class Train12306API:
             "seatType": SEAT_TYPES.get(seat_type, "1"),
             "fromStationTelecode": train_info["from_station_code"],
             "toStationTelecode": train_info["to_station_code"],
-            "leftTicket": train_info.get("secret_str", ""),
+            "leftTicket": left_ticket,
             "purpose_codes": "00",
-            "train_location": "",
+            "train_location": train_location,
             "REPEAT_SUBMIT_TOKEN": token,
+            "_json_att": "",
         }
 
         response = self.post(URLS["get_queue_count"], data=data)
         if response.status_code == 200:
             result = response.json()
             if result.get("status"):
-                count_str = result.get("data", {}).get("count", "0")
-                return int(count_str) if count_str.isdigit() else 0
+                data_info = result.get("data", {})
+                count_str = data_info.get("count", "0")
+                # 检查是否有票
+                ticket_info_msg = data_info.get("ticket", "")
+                if ticket_info_msg:
+                    print(f"余票信息: {ticket_info_msg}")
+                return int(count_str) if str(count_str).isdigit() else 0
         return 0
 
     def _confirm_order(self, passengers: list, seat_type: str, token: str,
@@ -819,13 +904,14 @@ class Train12306API:
             "randCode": "",
             "purpose_codes": "00",
             "key_check_isChange": ticket_info.get("key_check_isChange", ""),
-            "leftTicketStr": "",
+            "leftTicketStr": ticket_info.get("leftTicketStr", ""),
             "train_location": ticket_info.get("train_location", ""),
             "choose_seats": "",  # 选座
             "seatDetailType": "000",
             "whatsSelect": "1",
             "roomType": "00",
             "dwAll": "N",
+            "_json_att": "",
             "REPEAT_SUBMIT_TOKEN": token,
         }
 
