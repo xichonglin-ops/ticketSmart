@@ -59,10 +59,15 @@ def get_login_info() -> tuple:
 def get_passenger_info(index: int, passenger_type: str = "成人") -> dict:
     """
     获取单个乘客信息
+    返回乘客信息字典，如果信息不完整则返回 None
     """
     print(f"\n--- 乘客 {index + 1} ({passenger_type}) ---")
+    print("(如不需要此乘客，直接按回车跳过)")
 
     name = input("姓名: ").strip()
+    if not name:
+        print(f"  跳过乘客 {index + 1}")
+        return None
 
     print("证件类型:")
     print("  1. 二代身份证 (默认)")
@@ -80,7 +85,14 @@ def get_passenger_info(index: int, passenger_type: str = "成人") -> dict:
     id_type = id_type_map.get(id_type_choice, "二代身份证")
 
     id_no = input(f"{id_type}号码: ").strip()
+    if not id_no:
+        print(f"  证件号码为空，跳过乘客 {index + 1}")
+        return None
+
     mobile = input("手机号: ").strip()
+    if not mobile:
+        print(f"  手机号为空，跳过乘客 {index + 1}")
+        return None
 
     return {
         "name": name,
@@ -92,21 +104,49 @@ def get_passenger_info(index: int, passenger_type: str = "成人") -> dict:
 
 
 def get_all_passengers() -> list:
-    """获取所有乘客信息"""
+    """获取所有乘客信息，只添加信息完整的乘客"""
     print("\n" + "=" * 50)
-    print("请输入乘客信息 (共3人: 2成人 + 1儿童)")
+    print("请输入乘客信息")
+    print("说明: 姓名、证件号、手机号都填写才会加入抢票")
+    print("      直接按回车可跳过该乘客")
     print("=" * 50)
 
     passengers = []
+    passenger_index = 0
 
-    # 2个成人
-    for i in range(2):
-        passenger = get_passenger_info(i, "成人")
-        passengers.append(passenger)
+    # 最多支持5个乘客
+    max_passengers = 5
 
-    # 1个儿童
-    passenger = get_passenger_info(2, "儿童")
-    passengers.append(passenger)
+    while len(passengers) < max_passengers:
+        # 询问乘客类型
+        print(f"\n--- 添加乘客 (已添加 {len(passengers)} 人，最多 {max_passengers} 人) ---")
+        if len(passengers) > 0:
+            continue_add = input("是否继续添加乘客? (Y/n): ").strip().lower()
+            if continue_add == 'n':
+                break
+
+        print("乘客类型:")
+        print("  1. 成人 (默认)")
+        print("  2. 儿童")
+        print("  3. 学生")
+        type_choice = input("请选择 [1]: ").strip() or "1"
+
+        type_map = {
+            "1": "成人",
+            "2": "儿童",
+            "3": "学生",
+        }
+        passenger_type = type_map.get(type_choice, "成人")
+
+        passenger = get_passenger_info(passenger_index, passenger_type)
+        if passenger:
+            passengers.append(passenger)
+            print(f"  ✓ 已添加: {passenger['name']} ({passenger['type']})")
+
+        passenger_index += 1
+
+    if not passengers:
+        print("\n警告: 没有添加任何乘客!")
 
     return passengers
 
