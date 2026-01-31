@@ -730,25 +730,27 @@ class Train12306API:
 
         html = response.text
 
-        # 检查是否返回了登录页面（session 失效）
-        if "用户登录" in html or "login" in html.lower() and "passport" in html.lower():
-            print("登录状态已失效，请重新登录")
-            self.is_login = False
-            return None
-
         # 提取token
         token_match = re.search(r"var globalRepeatSubmitToken = '([^']+)'", html)
         ticket_match = re.search(r"var ticketInfoForPassengerForm=(\{.+?\});", html, re.S)
         order_match = re.search(r"var orderRequestDTO=(\{.+?\});", html, re.S)
 
-        if not token_match:
-            print("无法获取订单token: globalRepeatSubmitToken 未找到")
-            return None
-        if not ticket_match:
-            print("无法获取订单token: ticketInfoForPassengerForm 未找到")
-            return None
-        if not order_match:
-            print("无法获取订单token: orderRequestDTO 未找到")
+        # 如果无法提取 token，检查是否是登录问题
+        if not token_match or not ticket_match or not order_match:
+            # 检查是否返回了登录页面（明确的登录页面标识）
+            if "请先登录" in html or "login/init" in html or "var isLogin = false" in html:
+                print("登录状态已失效，请重新登录")
+                self.is_login = False
+            else:
+                # 打印具体哪个字段缺失，便于调试
+                missing = []
+                if not token_match:
+                    missing.append("globalRepeatSubmitToken")
+                if not ticket_match:
+                    missing.append("ticketInfoForPassengerForm")
+                if not order_match:
+                    missing.append("orderRequestDTO")
+                print(f"无法获取订单token: {', '.join(missing)} 未找到")
             return None
 
         token = token_match.group(1)
