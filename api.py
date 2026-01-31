@@ -612,7 +612,9 @@ class Train12306API:
                 "zy": fields[31] or "--",    # 一等座
                 "ze": fields[30] or "--",    # 二等座
                 "gr": fields[21] or "--",    # 高级软卧
-                "rw": fields[23] or "--",    # 软卧
+                "rw": fields[23] or "--",    # 软卧/一等卧
+                "ydw": fields[33] or "--",   # 一等卧（动车）
+                "edw": fields[22] or "--",   # 二等卧（动车）
                 "dw": fields[27] or "--",    # 动卧
                 "yw": fields[28] or "--",    # 硬卧
                 "rz": fields[24] or "--",    # 软座
