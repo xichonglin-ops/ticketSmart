@@ -24,6 +24,7 @@ URLS = {
     # 订票相关
     "submit_order": "https://kyfw.12306.cn/otn/leftTicket/submitOrderRequest",
     "init_dc": "https://kyfw.12306.cn/otn/confirmPassenger/initDc",
+    "check_order_info": "https://kyfw.12306.cn/otn/confirmPassenger/checkOrderInfo",
     "get_queue_count": "https://kyfw.12306.cn/otn/confirmPassenger/getQueueCount",
     "confirm_single": "https://kyfw.12306.cn/otn/confirmPassenger/confirmSingleForQueue",
     "query_order_wait": "https://kyfw.12306.cn/otn/confirmPassenger/queryOrderWaitTime",
@@ -96,7 +97,7 @@ ID_TYPES = {
 
 # 抢票配置
 TICKET_CONFIG = {
-    "query_interval": 1.0,  # 查询间隔（秒）
+    "query_interval": 1.5,  # 查询间隔（秒），适当增加避免限流
     "max_retry": 100,  # 最大重试次数
-    "submit_retry": 3,  # 提交订单重试次数
+    "submit_retry": 5,  # 提交订单重试次数
 }
