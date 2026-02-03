@@ -172,39 +172,42 @@ class TicketGrabber:
         检查车次是否有足够的票
         返回可用的座位类型，没有则返回None
         """
-        # 座位字段映射
+        # 座位字段映射 - 支持多个备用字段
+        # 12306 对于 D 字头动车，卧铺数据可能在不同字段
         seat_field_map = {
-            "商务座": "swz",
-            "一等座": "zy",
-            "二等座": "ze",
-            "一等卧": "ydw",
-            "二等卧": "edw",
-            "高级软卧": "gr",
-            "软卧": "rw",
-            "动卧": "dw",
-            "硬卧": "yw",
-            "软座": "rz",
-            "硬座": "yz",
-            "无座": "wz",
+            "商务座": ["swz"],
+            "一等座": ["zy"],
+            "二等座": ["ze"],
+            "一等卧": ["ydw", "rw"],  # 一等卧或软卧字段
+            "二等卧": ["edw", "yw"],  # 二等卧或硬卧字段
+            "高级软卧": ["gr"],
+            "软卧": ["rw", "ydw"],    # 软卧或一等卧字段
+            "动卧": ["dw"],
+            "硬卧": ["yw", "edw"],    # 硬卧或二等卧字段
+            "软座": ["rz"],
+            "硬座": ["yz"],
+            "无座": ["wz"],
         }
 
         for seat_type in self.seat_types:
-            field = seat_field_map.get(seat_type)
-            if not field:
+            fields = seat_field_map.get(seat_type, [])
+            if not fields:
                 continue
 
-            count = train_info.get(field, "--")
-            if count == "--" or count == "" or count == "无":
-                continue
+            # 检查所有可能的字段
+            for field in fields:
+                count = train_info.get(field, "--")
+                if count == "--" or count == "" or count == "无":
+                    continue
 
-            # 检查是否有足够的票
-            if count == "有":
-                return seat_type
-            try:
-                if int(count) >= self.ticket_count:
+                # 检查是否有足够的票
+                if count == "有":
                     return seat_type
-            except ValueError:
-                continue
+                try:
+                    if int(count) >= self.ticket_count:
+                        return seat_type
+                except ValueError:
+                    continue
 
         return None
 
@@ -255,11 +258,23 @@ class TicketGrabber:
         code = train["train_code"]
         info_parts = []
 
-        seat_fields = [
-            ("二等座", "ze"), ("一等座", "zy"), ("商务座", "swz"),
-            ("二等卧", "edw"), ("一等卧", "ydw"), ("动卧", "dw"),
-            ("硬卧", "yw"), ("软卧", "rw"), ("硬座", "yz"), ("无座", "wz")
-        ]
+        # 判断是否为动车/高铁 (D/G/C 开头)
+        is_emu = code[0] in ('D', 'G', 'C')
+
+        if is_emu:
+            # 动车/高铁座位字段
+            seat_fields = [
+                ("二等座", "ze"), ("一等座", "zy"), ("商务座", "swz"),
+                ("二等卧", "yw"), ("一等卧", "rw"), ("动卧", "dw"),
+                ("无座", "wz")
+            ]
+        else:
+            # 普通列车座位字段
+            seat_fields = [
+                ("硬座", "yz"), ("软座", "rz"),
+                ("硬卧", "yw"), ("软卧", "rw"), ("高级软卧", "gr"),
+                ("无座", "wz")
+            ]
 
         for name, field in seat_fields:
             count = train.get(field, "--")
